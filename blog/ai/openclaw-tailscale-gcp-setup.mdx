@@ -1,0 +1,300 @@
+---
+title: "在 GCP 上架設 OpenClaw + Tailscale 打造個人 AI 助理"
+description: "紀錄如何在 Google Compute Engine 上部署 OpenClaw，搭配 Tailscale 實現遠端存取，並整合 Telegram 作為聊天介面。"
+---
+
+## 前言
+
+最近開始玩 [OpenClaw](https://openclaw.ai/)，它是一個開源的個人 AI 助理，可以透過 Telegram、WhatsApp、Slack 等聊天平台與 AI 互動，支援多種 LLM（Claude、GPT、DeepSeek 等），而且完全 self-hosted，資料都在自己手上。
+
+不過如果把 OpenClaw 跑在本機，電腦就得一直開著，不太方便。所以這篇文章紀錄如何把 OpenClaw 部署到 GCP Compute Engine 上，搭配 Tailscale VPN 做遠端存取，最後再串接 Telegram 作為聊天介面。
+
+## 為什麼選這些工具？
+
+### OpenClaw
+
+OpenClaw（前身為 Clawdbot / Moltbot）是由 Peter Steinberger 開發的開源 AI agent，在 GitHub 上有超過 26 萬顆星，是 2025–2026 年成長最快的開源 AI 專案之一。
+
+主要特色：
+- **Self-hosted**：資料完全在自己的機器上，不經過第三方
+- **多平台聊天整合**：支援 Telegram、WhatsApp、Slack、Discord 等
+- **持久記憶**：AI 會記住你的偏好和對話內容
+- **可擴充 Skills**：社群有大量現成的 skill 可以安裝
+- **支援多種 LLM**：Claude、GPT、DeepSeek 等，自己帶 API key 就好
+
+### Tailscale
+
+[Tailscale](https://tailscale.com/) 是一個基於 WireGuard 的 VPN 工具，可以把不同裝置加入同一個虛擬私人網路。用在這個場景的好處是：
+
+- 不需要開放 public IP 或設定複雜的防火牆規則
+- 從桌機、筆電都可以直接存取 GCP 上的 OpenClaw Dashboard
+- 設定簡單，幾個指令就搞定
+
+### GCP
+
+選擇 GCP Compute Engine 來跑 OpenClaw 的原因：
+
+- 不用讓本機電腦 24 小時開機
+- GCP 提供 $300 美元的免費試用額度，可以先玩一陣子
+- 機器規格可以彈性調整
+
+## GCP Compute Engine 設定
+
+### 建立 VM
+
+到 [GCP Console](https://console.cloud.google.com/) 建立一個新的 Compute Engine VM，規格設定如下：
+
+| 項目 | 設定值 |
+|------|--------|
+| Machine type | e2-small |
+| vCPU | 2 |
+| RAM | 4 GB |
+| OS | Ubuntu 22.04 LTS |
+| Boot disk | 20 GB SSD |
+
+<Note>
+OpenClaw 官方最低需求是 1 vCPU + 1 GB RAM，但建議至少 2 GB RAM 以上比較穩定。e2-small (2 vCPU + 4 GB RAM) 是比較舒適的選擇。
+</Note>
+
+### 開啟 IP Forwarding
+
+因為等等要安裝 Tailscale，需要啟用 IP forwarding。
+
+在建立 VM 頁面找到 **網路** > **網路介面**，勾選 **IP 轉送** 即可。
+
+### SSH 連線到 VM
+
+```bash
+gcloud compute ssh <vm-name> --zone <zone>
+```
+
+或是直接從 GCP Console 的 SSH 按鈕連線。
+
+## 安裝 Tailscale
+
+### 建立 Tailscale 帳號
+
+先到 [Tailscale](https://tailscale.com/) 註冊一個帳號，可以用 Google 或 GitHub 登入。
+
+### 在 GCP VM 上安裝 Tailscale
+
+SSH 連線到 VM 後，執行以下指令安裝 Tailscale：
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+```
+
+啟動 Tailscale 並登入：
+
+```bash
+sudo tailscale up
+```
+
+執行後會顯示一個授權連結，在瀏覽器中打開並登入即可完成裝置註冊。
+
+### 在本機安裝 Tailscale
+
+在自己的桌機或筆電上也安裝 Tailscale，可以從 [Tailscale 下載頁面](https://tailscale.com/download) 取得各平台的安裝程式。
+
+安裝完成後登入同一個帳號，兩台裝置就會出現在同一個 Tailscale 網路中，可以透過 Tailscale 分配的 IP 互相存取。
+
+### 設定防火牆規則
+
+到 GCP Console 的 **VPC Network** > **防火牆政策** > **建立防火牆規則**，允許 Tailscale 的 UDP 流量：
+
+| 項目 | 設定值 |
+|------|--------|
+| 流量方向 | 輸入 |
+| 目標 | 指定的目標標記 |
+| 目標標記 | 自訂（例如 `tailscale`） |
+| 來源 IP 範圍 | `0.0.0.0/0` |
+| 通訊協定和通訊埠 | UDP `41641` |
+
+建立完規則後，記得到 VM 的設定中，把這個目標標記加到 **網路標記** 中。
+
+## 安裝 OpenClaw
+
+### 安裝 Node.js
+
+OpenClaw 需要 Node.js 22 以上的版本，使用 [nvm](https://github.com/nvm-sh/nvm) 來安裝：
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+source ~/.bashrc
+nvm install 22
+node -v
+```
+
+### 安裝並初始化 OpenClaw
+
+```bash
+npm install -g openclaw@latest
+openclaw onboard --install-daemon
+```
+
+`onboard` 指令會啟動一個互動式的設定精靈，依照提示完成以下設定：
+- 選擇要使用的 LLM
+- 輸入 API key
+- 設定 agent 名稱
+
+完成後 OpenClaw Gateway 會以 systemd service 的方式在背景執行。
+
+### 設定 Gateway
+
+安裝完成後，記得確認 `~/.openclaw/openclaw.json` 中的 Gateway 設定：
+
+```json
+{
+  "gateway": {
+    "bind": "loopback",
+    "tailscale": { 
+      "mode": "serve"
+    }
+  }
+}
+```
+
+- `bind` 設定為 `loopback`，確保 Gateway 不會直接暴露在公網上
+
+<Warning>
+`bind` 務必維持 `127.0.0.1`，不要設成 `0.0.0.0`，避免 Gateway 被外部直接存取。透過 Tailscale Serve 來做轉發才是安全的做法。
+</Warning>
+
+### 修改預設 Port
+
+OpenClaw Gateway 預設跑在 port `18789`，建議改成其他 port（例如 `18080`），在 `~/.openclaw/openclaw.json` 中加入：
+
+```json
+{
+  "gateway": {
+    "port": 18080
+  }
+}
+```
+
+修改完後重啟 OpenClaw：
+
+```bash
+openclaw gateway stop
+openclaw gateway start
+```
+
+### 使用 Tailscale Serve 開放 Dashboard
+
+修改完 port 後，透過 Tailscale Serve 可以讓同一個 Tailscale 網路中的其他裝置存取 Dashboard：
+
+```bash
+sudo tailscale serve --bg 18080
+```
+
+設定完成後，在本機瀏覽器打開 `https://<vm-tailscale-hostname>` 就可以看到 OpenClaw Dashboard 了。
+
+<Note>
+Tailscale 會自動處理 HTTPS 憑證，不需要額外設定 SSL。
+</Note>
+
+## Troubleshooting
+
+### Token 未設定
+
+如果打開 Dashboard 後出現 token 相關的錯誤，需要手動設定 token。到 Dashboard 的設定頁面取得 token，然後在 OpenClaw 的設定中填入。
+
+### allowedOrigins 設定
+
+如果從 Tailscale 的 hostname 存取 Dashboard 時出現 CORS 錯誤，需要修改 OpenClaw 的設定檔：
+
+Error:
+
+```text
+origin not allowed (open the Control UI from the gateway host or allow it in gateway.controlUi.allowedOrigins)
+```
+
+Solution:
+
+```bash
+vim ~/.openclaw/openclaw.json
+```
+
+找到 `allowedOrigins` 欄位，加入 Tailscale 的 hostname：
+
+```json
+{
+  "allowedOrigins": [
+    "https://<vm-tailscale-hostname>"
+  ]
+}
+```
+
+修改完後重啟 OpenClaw：
+
+```bash
+openclaw gateway stop
+openclaw gateway start
+```
+
+## 串接 Telegram
+
+OpenClaw 支援直接串接 Telegram Bot，讓你可以在 Telegram 上和 AI 對話。
+
+### 建立 Telegram Bot
+
+<Steps>
+  <Step title="建立 Bot">
+    在 Telegram 中搜尋 [@BotFather](https://t.me/BotFather)，輸入 `/newbot`，依照提示設定 Bot 名稱，完成後會拿到一個 Bot Token。
+  </Step>
+  <Step title="設定 OpenClaw">
+    參考 [OpenClaw Telegram 整合文件](https://docs.openclaw.ai/integrations/telegram)，將 Bot Token 設定到 OpenClaw 中。
+  </Step>
+  <Step title="開始對話">
+    設定完成後，就可以在 Telegram 中和你的 AI 助理對話了。
+  </Step>
+</Steps>
+
+### 建立多個聊天群組
+
+一個實用的技巧是建立多個 Telegram 群組，針對不同主題分開對話，例如：
+
+- **日常助理**：處理日常問題、翻譯、資料查詢
+- **程式開發**：Code review、技術問題討論
+- **學習筆記**：整理學習內容、產生摘要
+
+設定步驟：
+
+<Steps>
+  <Step title="建立 Telegram 群組">
+    在 Telegram 中建立一個新的群組，設定群組名稱（例如「AI 日常助理」）。
+  </Step>
+  <Step title="將 Bot 加入群組">
+    在群組中點選 **新增成員**，加入 Bot。
+  </Step>
+  <Step title="取得群組的 Chat ID">
+    在 Telegram 中搜尋 [@userinfobot](https://t.me/userinfobot)，點選 **Group**，選取想要取得 Chat ID 的群組，Bot 會回傳該群組的 Chat ID（通常是一個負數，例如 `-1001234567890`）。每個群組都重複這個步驟，把 Chat ID 記下來。
+  </Step>
+  <Step title="在 OpenClaw 設定群組對應">
+    在 telegram 中跟 Bot 設定要將哪些訊息送到哪個 Chat ID，也可以針對不同群組設定獨立的 system prompt，讓 AI 在不同群組中扮演不同的角色。
+  </Step>
+</Steps>
+
+<Note>
+每個群組的對話是獨立的 context，所以不同群組之間不會互相干擾。
+</Note>
+
+## 總結
+
+整個架構大概是這樣：
+
+| 元件 | 說明 |
+|------|------|
+| GCP Compute Engine | 跑 OpenClaw 的主機 |
+| Tailscale | VPN，讓本機可以存取 GCP 上的 Dashboard |
+| OpenClaw | AI 助理核心，處理 LLM 呼叫和工具執行 |
+| Telegram | 聊天介面，和 AI 互動的入口 |
+
+這樣設定完之後，就可以隨時隨地透過 Telegram 和自己的 AI 助理對話，Dashboard 也可以從任何有裝 Tailscale 的裝置存取，不用擔心本機電腦關機的問題。
+
+## 參考資料
+
+- [OpenClaw 官方文件](https://docs.openclaw.ai/)
+- [OpenClaw GitHub](https://github.com/openclaw/openclaw)
+- [Tailscale 官網](https://tailscale.com/)
+- [GCP Compute Engine 文件](https://cloud.google.com/compute/docs)
