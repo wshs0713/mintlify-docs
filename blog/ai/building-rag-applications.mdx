@@ -1,0 +1,116 @@
+---
+title: "Building RAG Applications from Scratch"
+description: "A step-by-step guide to Retrieval-Augmented Generation architecture."
+---
+
+## What is RAG?
+
+Retrieval-Augmented Generation (RAG) combines the power of LLMs with external knowledge retrieval. Instead of relying solely on the model's training data, RAG fetches relevant documents at query time and feeds them as context.
+
+## Architecture overview
+
+A typical RAG pipeline has three stages:
+
+<Steps>
+  <Step title="Indexing">
+    Split documents into chunks, generate embeddings, and store them in a vector database.
+  </Step>
+  <Step title="Retrieval">
+    When a user asks a question, convert it to an embedding and find the most similar document chunks.
+  </Step>
+  <Step title="Generation">
+    Pass the retrieved chunks along with the question to an LLM to generate a grounded answer.
+  </Step>
+</Steps>
+
+## Implementation with Python
+
+### Document chunking
+
+```python
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+def chunk_documents(documents: list[str], chunk_size: int = 500) -> list[str]:
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=50,
+        separators=["\n\n", "\n", ". ", " "],
+    )
+    chunks = []
+    for doc in documents:
+        chunks.extend(splitter.split_text(doc))
+    return chunks
+```
+
+### Embedding and storage
+
+```python
+import chromadb
+from openai import OpenAI
+
+client = OpenAI()
+chroma = chromadb.PersistentClient(path="./chroma_db")
+collection = chroma.get_or_create_collection("knowledge_base")
+
+def index_chunks(chunks: list[str]) -> None:
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=chunks,
+    )
+    embeddings = [item.embedding for item in response.data]
+
+    collection.add(
+        documents=chunks,
+        embeddings=embeddings,
+        ids=[f"chunk_{i}" for i in range(len(chunks))],
+    )
+```
+
+### Query and generation
+
+```python
+def query_rag(question: str, top_k: int = 3) -> str:
+    # Retrieve relevant chunks
+    q_embedding = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=[question],
+    ).data[0].embedding
+
+    results = collection.query(
+        query_embeddings=[q_embedding],
+        n_results=top_k,
+    )
+
+    context = "\n\n".join(results["documents"][0])
+
+    # Generate answer
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {
+                "role": "system",
+                "content": f"Answer the question based on the following context.\n\n{context}",
+            },
+            {"role": "user", "content": question},
+        ],
+    )
+    return response.choices[0].message.content
+```
+
+## Key considerations
+
+<AccordionGroup>
+  <Accordion title="Chunk size matters">
+    Too small and you lose context. Too large and you dilute relevance. Start with 500 tokens and adjust based on your retrieval quality.
+  </Accordion>
+  <Accordion title="Embedding model selection">
+    OpenAI's `text-embedding-3-small` is a good balance of cost and quality. For higher accuracy, consider `text-embedding-3-large` or Cohere's models.
+  </Accordion>
+  <Accordion title="Reranking improves precision">
+    After initial vector search, use a cross-encoder reranker (e.g., Cohere Rerank) to re-score and filter the top results before sending to the LLM.
+  </Accordion>
+</AccordionGroup>
+
+## What's next
+
+In a future post, I'll cover advanced RAG patterns including hybrid search, query decomposition, and evaluation frameworks.

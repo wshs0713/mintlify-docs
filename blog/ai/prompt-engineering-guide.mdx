@@ -1,0 +1,86 @@
+---
+title: "Prompt Engineering: A Practical Guide"
+description: "Techniques and patterns for getting better results from LLMs."
+---
+
+## Why prompt engineering matters
+
+The difference between a mediocre LLM output and a great one often comes down to how you frame the request. Prompt engineering is less about "tricking" the model and more about communicating clearly.
+
+## Core techniques
+
+### 1. Be specific about the output format
+
+Instead of asking "summarize this article," tell the model exactly what you want:
+
+```
+Summarize the following article in 3 bullet points.
+Each bullet should be one sentence, focusing on actionable takeaways.
+```
+
+### 2. Use system prompts to set context
+
+System prompts establish the persona, constraints, and style for the conversation.
+
+```python
+messages = [
+    {
+        "role": "system",
+        "content": "You are a senior backend engineer. "
+                   "Answer concisely. Use code examples when relevant."
+    },
+    {
+        "role": "user",
+        "content": "How should I handle database connection pooling in Go?"
+    }
+]
+```
+
+### 3. Chain of thought prompting
+
+For complex reasoning tasks, ask the model to think step by step:
+
+```
+Analyze this database schema and identify potential performance issues.
+Think step by step:
+1. First, examine the table relationships
+2. Then, check index coverage for common query patterns
+3. Finally, identify any N+1 query risks
+```
+
+### 4. Few-shot examples
+
+Provide examples of the input-output pattern you expect:
+
+```
+Convert the following error messages to user-friendly text.
+
+Example:
+Input: "ECONNREFUSED 127.0.0.1:5432"
+Output: "Unable to connect to the database. Please try again later."
+
+Now convert:
+Input: "ETIMEDOUT: request timed out after 30000ms"
+Output:
+```
+
+## Common pitfalls
+
+<Warning>
+Avoid these common mistakes when writing prompts:
+- Being too vague ("make it better")
+- Overloading a single prompt with multiple unrelated tasks
+- Not specifying the desired output length or format
+</Warning>
+
+## Tools I recommend
+
+| Tool | Use case |
+|------|----------|
+| [Claude](https://claude.ai) | Complex reasoning, code generation |
+| [ChatGPT](https://chat.openai.com) | General-purpose, browsing |
+| [Cursor](https://cursor.com) | IDE-integrated coding assistant |
+
+## Summary
+
+Prompt engineering is a skill that improves with practice. Start with clear instructions, add structure to your prompts, and iterate based on what works for your specific use case.

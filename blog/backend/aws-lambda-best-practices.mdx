@@ -1,0 +1,113 @@
+---
+title: "AWS Lambda Best Practices"
+description: "Lessons learned from running Lambda functions in production."
+---
+
+## Lambda in production
+
+AWS Lambda is powerful for event-driven workloads, but there are patterns and pitfalls that only become clear after running in production.
+
+## Cold start optimization
+
+Cold starts are the most common Lambda performance issue.
+
+### Keep your package small
+
+```bash
+# Bad: 50MB+ deployment package
+pip install boto3 pandas numpy scipy
+
+# Better: only include what you need
+pip install --target ./package boto3
+```
+
+### Use provisioned concurrency for latency-sensitive paths
+
+```yaml
+# serverless.yml
+functions:
+  api:
+    handler: handler.main
+    provisionedConcurrency: 5
+```
+
+### Initialize outside the handler
+
+```python
+import boto3
+
+# Initialized once per container (reused across invocations)
+dynamodb = boto3.resource("dynamodb")
+table = dynamodb.Table("users")
+
+def handler(event: dict, context) -> dict:
+    # This runs on every invocation
+    user_id = event["pathParameters"]["id"]
+    response = table.get_item(Key={"id": user_id})
+    return {
+        "statusCode": 200,
+        "body": json.dumps(response.get("Item", {})),
+    }
+```
+
+## Error handling
+
+### Use structured logging
+
+```python
+import json
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def handler(event: dict, context) -> dict:
+    logger.info(json.dumps({
+        "action": "process_order",
+        "order_id": event.get("order_id"),
+        "request_id": context.aws_request_id,
+    }))
+    # ...
+```
+
+### Implement dead letter queues
+
+For async invocations, always configure a DLQ to catch failures:
+
+```yaml
+functions:
+  processOrder:
+    handler: handler.process
+    events:
+      - sqs:
+          arn: !GetAtt OrderQueue.Arn
+    onError: !GetAtt DeadLetterQueue.Arn
+```
+
+## Cost optimization
+
+<AccordionGroup>
+  <Accordion title="Right-size memory allocation">
+    Lambda CPU scales with memory. Sometimes increasing memory from 128MB to 256MB makes your function 3x faster and actually cheaper per invocation.
+  </Accordion>
+  <Accordion title="Use ARM architecture">
+    Graviton2 (arm64) functions are ~20% cheaper and often faster than x86. Switch with one line of config.
+  </Accordion>
+  <Accordion title="Avoid unnecessary invocations">
+    Use SQS batching, S3 event filters, and EventBridge rules to reduce the number of Lambda invocations.
+  </Accordion>
+</AccordionGroup>
+
+## Monitoring checklist
+
+| Metric | Why it matters |
+|--------|---------------|
+| Duration | Detect performance regressions |
+| Errors | Catch bugs early |
+| Throttles | Know when you hit concurrency limits |
+| Cold starts | Track user-facing latency |
+| Cost per invocation | Prevent bill surprises |
+
+## Summary
+
+Lambda works great in production when you respect its constraints. Focus on cold start optimization, structured error handling, and cost-aware configuration.

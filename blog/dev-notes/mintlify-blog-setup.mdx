@@ -1,0 +1,102 @@
+---
+title: "Setting Up a Tech Blog with Mintlify"
+description: "How I built this blog using Mintlify's documentation platform."
+---
+
+## Why Mintlify?
+
+I wanted a blog that focuses on technical content with great code block rendering, and I didn't want to deal with styling or frontend frameworks. Mintlify checks all the boxes:
+
+- Beautiful code blocks with syntax highlighting
+- MDX support for interactive components
+- Built-in search
+- Git-based workflow — write in your editor, push to deploy
+
+## Project structure
+
+```
+mintlify-docs/
+├── docs.json          # Site configuration
+├── index.mdx          # Homepage
+├── about.mdx          # About page
+└── blog/
+    ├── ai/            # AI & LLM articles
+    ├── backend/       # Backend & DevOps articles
+    └── dev-notes/     # Quick tips and notes
+```
+
+## Key configuration
+
+The `docs.json` file controls navigation, theming, and site metadata. Here's the tab structure I use:
+
+```json
+{
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Home",
+        "groups": [
+          {
+            "group": "",
+            "pages": ["index", "about"]
+          }
+        ]
+      },
+      {
+        "tab": "Blog",
+        "groups": [
+          {
+            "group": "AI & LLM",
+            "pages": ["blog/ai/prompt-engineering-guide"]
+          },
+          {
+            "group": "Backend & DevOps",
+            "pages": ["blog/backend/go-concurrency-patterns"]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+## Writing workflow
+
+1. Create a new `.mdx` file in the appropriate `blog/` subdirectory
+2. Add the page path to `docs.json` under the right group
+3. Write content using MDX — standard Markdown plus Mintlify components
+4. Push to GitHub and Mintlify auto-deploys
+
+## Useful Mintlify components
+
+<Tabs>
+  <Tab title="Accordion">
+    Great for FAQ sections or collapsible details.
+    ```mdx
+    <Accordion title="Question here">
+      Answer here.
+    </Accordion>
+    ```
+  </Tab>
+  <Tab title="Steps">
+    Perfect for tutorials and guides.
+    ```mdx
+    <Steps>
+      <Step title="First">Do this.</Step>
+      <Step title="Then">Do that.</Step>
+    </Steps>
+    ```
+  </Tab>
+  <Tab title="Cards">
+    Good for navigation and feature highlights.
+    ```mdx
+    <Card title="Title" icon="icon-name" href="/path">
+      Description here.
+    </Card>
+    ```
+  </Tab>
+</Tabs>
+
+## Summary
+
+Mintlify is a solid choice for technical blogs. The MDX components make content more engaging, and the Git-based workflow fits naturally into a developer's routine.

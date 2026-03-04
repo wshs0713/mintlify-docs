@@ -1,0 +1,126 @@
+---
+title: "Go Concurrency Patterns for Production"
+description: "Practical goroutine and channel patterns that I use in real projects."
+---
+
+## Why Go concurrency matters
+
+Go's concurrency model — goroutines and channels — is one of its biggest strengths. But using them effectively in production requires understanding common patterns and pitfalls.
+
+## Pattern 1: Worker pool
+
+A worker pool limits concurrency to avoid overwhelming downstream services.
+
+```go
+func workerPool(jobs <-chan Job, results chan<- Result, numWorkers int) {
+    var wg sync.WaitGroup
+    for i := 0; i < numWorkers; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            for job := range jobs {
+                results <- process(job)
+            }
+        }()
+    }
+    wg.Wait()
+    close(results)
+}
+```
+
+## Pattern 2: Fan-out / Fan-in
+
+Distribute work across multiple goroutines and merge results.
+
+```go
+func fanOutFanIn(input <-chan int, numWorkers int) <-chan int {
+    channels := make([]<-chan int, numWorkers)
+
+    // Fan-out
+    for i := 0; i < numWorkers; i++ {
+        channels[i] = worker(input)
+    }
+
+    // Fan-in
+    output := make(chan int)
+    var wg sync.WaitGroup
+    for _, ch := range channels {
+        wg.Add(1)
+        go func(c <-chan int) {
+            defer wg.Done()
+            for v := range c {
+                output <- v
+            }
+        }(ch)
+    }
+    go func() {
+        wg.Wait()
+        close(output)
+    }()
+    return output
+}
+```
+
+## Pattern 3: Context-based cancellation
+
+Always use `context.Context` for cancellation and timeouts in production.
+
+```go
+func fetchWithTimeout(ctx context.Context, url string) ([]byte, error) {
+    ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+    defer cancel()
+
+    req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+    if err != nil {
+        return nil, fmt.Errorf("creating request: %w", err)
+    }
+
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil {
+        return nil, fmt.Errorf("executing request: %w", err)
+    }
+    defer resp.Body.Close()
+
+    return io.ReadAll(resp.Body)
+}
+```
+
+## Pattern 4: errgroup for parallel tasks
+
+`errgroup` from `golang.org/x/sync` is my go-to for running parallel tasks with error propagation.
+
+```go
+func fetchAll(ctx context.Context, urls []string) ([][]byte, error) {
+    g, ctx := errgroup.WithContext(ctx)
+    results := make([][]byte, len(urls))
+
+    for i, url := range urls {
+        g.Go(func() error {
+            data, err := fetchWithTimeout(ctx, url)
+            if err != nil {
+                return err
+            }
+            results[i] = data
+            return nil
+        })
+    }
+
+    if err := g.Wait(); err != nil {
+        return nil, err
+    }
+    return results, nil
+}
+```
+
+## Common mistakes
+
+<Warning>
+Watch out for these concurrency bugs:
+- **Goroutine leaks** — Always ensure goroutines can exit (use context cancellation or channel closing).
+- **Race conditions** — Run tests with `-race` flag. Always.
+- **Unbuffered channels blocking forever** — Make sure both sender and receiver are ready.
+</Warning>
+
+## Summary
+
+These four patterns cover most real-world concurrency needs in Go. Start with `errgroup` for simple parallelism, and reach for worker pools when you need to control concurrency levels.
