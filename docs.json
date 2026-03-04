@@ -7,7 +7,7 @@
     "light": "#818CF8",
     "dark": "#4F46E5"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "/favicon.png",
   "navigation": {
     "tabs": [
       {
@@ -27,7 +27,9 @@
         "groups": [
           {
             "group": "AI & LLM",
-            "pages": []
+            "pages": [
+              "blog/ai/openclaw-tailscale-gcp-setup"
+            ]
           },
           {
             "group": "Backend & DevOps",
