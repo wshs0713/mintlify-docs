@@ -113,21 +113,8 @@ sudo tailscale up
 
 ## 安裝 OpenClaw
 
-### 安裝 Node.js
-
-OpenClaw 需要 Node.js 22 以上的版本，使用 [nvm](https://github.com/nvm-sh/nvm) 來安裝：
-
 ```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-source ~/.bashrc
-nvm install 22
-node -v
-```
-
-### 安裝並初始化 OpenClaw
-
-```bash
-npm install -g openclaw@latest
+curl -fsSL https://openclaw.ai/install.sh | bash
 openclaw onboard --install-daemon
 ```
 
@@ -236,6 +223,18 @@ vim ~/.openclaw/openclaw.json
 ```bash
 openclaw gateway stop
 openclaw gateway start
+```
+
+### Pairing Required
+
+如果在開啟 Dashboard 時，出現錯誤訊息`Pairing required`, 請執行以下步驟：
+
+```shellscript
+# On GCP
+openclaw devices list
+
+# Approve your request
+openclaw devices approve <request ID>
 ```
 
 ## 串接 Telegram
