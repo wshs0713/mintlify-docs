@@ -221,9 +221,13 @@ vim ~/.openclaw/openclaw.json
 
 ```json
 {
-  "allowedOrigins": [
-    "https://<vm-tailscale-hostname>"
-  ]
+  "gateway": {
+    "controlUi": {
+      "allowedOrigins": [
+        "https://<vm-tailscale-hostname>"
+      ]
+    }
+  }
 }
 ```
 
